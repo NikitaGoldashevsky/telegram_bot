@@ -42,7 +42,7 @@ def stop(update, context):
 
 
 def main():
-    updater = Updater('5269699771:AAGLPqG-A7q_2lHTYrwZ1INLfMwk6SyKH0M', use_context=True)
+    updater = Updater(TOKEN, use_context=True)
 
     dp = updater.dispatcher
 
