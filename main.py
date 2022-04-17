@@ -1,5 +1,6 @@
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, ConversationHandler
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 import os
 
 
@@ -105,6 +106,10 @@ def new_third_response(update, context):
     update.message.reply_text(f"Напоминание с описанием: \"{program.desc}\"\n"
                               f"Будет воспроизведено {program.date} "
                               f"в {program.time}")
+
+    e.execute(f"""insert into reminders(user_id, desc, time, date) values (
+{int(update.message.from_user.id)}, '{program.desc}', '{program.time}', '{program.date}')""")
+
     return ConversationHandler.END
 
 
@@ -118,11 +123,51 @@ def stop_name(update, context):
     return ConversationHandler.END
 
 
+def start_delete(update, context):
+    update.message.reply_text(
+        "Введите номер напоминания, которое хотите удалить")
+
+    return 1
+
+
+def delete_response(update, context):
+    try:
+        e.execute(f"""DELETE FROM reminders WHERE id={update.message.text}""")
+    except OperationalError:
+        update.message.reply_text('Введите порядковый номер нужного напоминания\n(узнать его можно с помощью /list)')
+        return 1
+    else:
+        update.message.reply_text('Удалено')
+
+    return ConversationHandler.END
+
+
+def stop_delete(update, context):
+    update.message.reply_text("Ни одно напоминание не будет удалено")
+    return ConversationHandler.END
+
+
 def help(update, context):
     update.message.reply_text("Команды бота:\n"
                               "/help — вывести список всех команд\n"
                               "/new — создать новое напоминание\n"
+                              "/list — вывести список всех напоминаний\n"
+                              "/delete — удалить выбранное напоминание\n"
                               "/name — изменить ваше имя")
+    return ConversationHandler.END
+
+
+def list(update, context):
+    data = e.execute(f"""
+            select * from reminders where user_id == "{int(update.message.from_user.id)}"
+            """).fetchall()
+    if len(data):
+        update.message.reply_text(f'{program.username}, вот список всех созданных вами напоминаний:')
+        for elem in data:
+            update.message.reply_text(f'{elem[0]}: {elem[2]}, ({elem[3]}, {elem[4]})')
+    else:
+        update.message.reply_text('Вы не создали ни одного напоминания')
+
     return ConversationHandler.END
 
 
@@ -148,8 +193,19 @@ def main():
             name varchar
         )
     """)
+    e.execute("""
+                create table reminders (
+                id integer primary key,
+                user_id varchar,
+                desc varchar,
+                time varchar,
+                date varchar
+            )
+        """)
 
-    updater = Updater('5269699771:AAGLPqG-A7q_2lHTYrwZ1INLfMwk6SyKH0M', use_context=True)
+    with open('not a token.txt', 'r') as file:
+        token = file.read()
+    updater = Updater(token, use_context=True)
 
     dp = updater.dispatcher
 
@@ -180,6 +236,17 @@ def main():
         fallbacks=[CommandHandler('stop', stop_name)]
     )
 
+    delete_conv_handler = ConversationHandler(
+
+        entry_points=[CommandHandler('delete', start_delete)],
+
+        states={
+            1: [MessageHandler(Filters.text & ~Filters.command, delete_response)],
+        },
+
+        fallbacks=[CommandHandler('stop', stop_delete)]
+    )
+
     start_conv_handler = ConversationHandler(
 
         entry_points=[CommandHandler('start', start)],
@@ -194,7 +261,9 @@ def main():
     dp.add_handler(name_conv_handler)
     dp.add_handler(new_conv_handler)
     dp.add_handler(start_conv_handler)
+    dp.add_handler(delete_conv_handler)
     dp.add_handler(CommandHandler("help", help))
+    dp.add_handler(CommandHandler("list", list))
 
     global program
     program = Program()
