@@ -10,6 +10,8 @@ class Program:
         self.desc = ''
         self.date = ''
         self.time = ''
+        self.coords = ''
+        self.scale = ''
 
 
 def start(update, context):
@@ -153,6 +155,7 @@ def help(update, context):
                               "/new — создать новое напоминание\n"
                               "/list — вывести список всех напоминаний\n"
                               "/delete — удалить выбранное напоминание\n"
+                              "/map — получить схематичное изображение карты\n"
                               "/name — изменить ваше имя")
     return ConversationHandler.END
 
@@ -181,6 +184,37 @@ def pass_stop(update, context):
     update.message.reply_text("Пожалуйста, напишите, как программе обращаться к вам")
 
 
+def start_map(update, context):
+    update.message.reply_text("Напишите координаты места\n(например, 37.677751,55.757718)")
+
+    return 1
+
+
+def map_first_response(update, context):
+    program.coords = update.message.text
+
+    update.message.reply_text('Напишите масштаб\n(например, 0.003,0.003)')
+
+    return 2
+
+
+def map_second_response(update, context):
+    program.scale = update.message.text
+
+    map_request = f"http://static-maps.yandex.ru/1.x/?ll={program.coords}&" \
+                  f"spn={program.scale}&l=map"
+    chat_id = update.message.chat_id
+
+    updater.bot.send_photo(chat_id, map_request)
+
+    return ConversationHandler.END
+
+
+def stop_map(update, context):
+    update.message.reply_text("Показ карты отменен")
+    return ConversationHandler.END
+
+
 def main():
     if os.path.exists("data.db"):
         os.remove("data.db")
@@ -205,6 +239,8 @@ def main():
 
     with open('not a token.txt', 'r') as file:
         token = file.read()
+
+    global updater
     updater = Updater(token, use_context=True)
 
     dp = updater.dispatcher
@@ -236,6 +272,18 @@ def main():
         fallbacks=[CommandHandler('stop', stop_name)]
     )
 
+    map_conv_handler = ConversationHandler(
+
+        entry_points=[CommandHandler('map', start_map)],
+
+        states={
+            1: [MessageHandler(Filters.text & ~Filters.command, map_first_response)],
+            2: [MessageHandler(Filters.text & ~Filters.command, map_second_response)],
+        },
+
+        fallbacks=[CommandHandler('stop', stop_map)]
+    )
+
     delete_conv_handler = ConversationHandler(
 
         entry_points=[CommandHandler('delete', start_delete)],
@@ -262,6 +310,7 @@ def main():
     dp.add_handler(new_conv_handler)
     dp.add_handler(start_conv_handler)
     dp.add_handler(delete_conv_handler)
+    dp.add_handler(map_conv_handler)
     dp.add_handler(CommandHandler("help", help))
     dp.add_handler(CommandHandler("list", list))
 
