@@ -1,5 +1,4 @@
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, ConversationHandler
-from telegram.ext import CallbackContext
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 import datetime
@@ -95,7 +94,7 @@ def new_second_response(update, context):
     update.message.reply_text(f"Напоминание с описанием: \"{program.desc}\"\n"
                               f"Будет воспроизведено в {program.time}")
     jq.run_daily(send_message_job, datetime.time(hour=int(program.time[:2]), minute=int(program.time[3:])),
-                 days=(0, 1, 2, 3, 4, 5, 6), context=update.message.chat_id, tzinfo=pytz.timezone())
+                 days=(0, 1, 2, 3, 4, 5, 6), context=update.message.chat_id)
 
     e.execute(f"""insert into reminders(user_id, desc, time) values (
 {int(update.message.from_user.id)}, '{program.desc}', '{program.time}')""")
