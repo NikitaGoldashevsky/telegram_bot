@@ -1,6 +1,8 @@
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, ConversationHandler
+from telegram.ext import CallbackContext
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
+import datetime
 import os
 
 
@@ -12,6 +14,7 @@ class Program:
         self.time = ''
         self.coords = ''
         self.scale = ''
+        self.id = ''
 
 
 def start(update, context):
@@ -20,6 +23,7 @@ def start(update, context):
         return ConversationHandler.END
 
     update.message.reply_text('Как к вам обращаться?')
+    program.id = update.message.chat_id
 
     return 1
 
@@ -72,7 +76,7 @@ def new_first_response(update, context):
     program.desc = update.message.text
 
     update.message.reply_text(
-        "В какой день напомнить?\n(например: 31.01)")
+        "В какое время напомнить?\n(например: 12:00)")
 
     return 2
 
@@ -80,39 +84,35 @@ def new_first_response(update, context):
 def new_second_response(update, context):
     reply = update.message.text
 
-    if len(reply) != 5 or reply[2] != '.' or not reply[0:2].isdigit() or not reply[3:].isdigit() or \
-            int(reply[0:2]) not in range(1, 32) or int(reply[3:]) not in range(1, 13):
-        update.message.reply_text(
-            "Неправильный формат даты, введите еще раз\n(пример: 31.01)")
-        return 2
-
-    program.date = reply
-
-    update.message.reply_text(
-        "В какое время напомнить?\n(например: 12:00)")
-
-    return 3
-
-
-def new_third_response(update, context):
-    reply = update.message.text
-
     if len(reply) != 5 or reply[2] != ':' or not reply[0:2].isdigit() or not reply[3:].isdigit() or \
             int(reply[0:2]) not in range(0, 24) or int(reply[3:]) not in range(0, 60):
         update.message.reply_text(
             "Неправильный формат времени, введите еще раз\n(пример: 12:00)")
-        return 3
+        return 2
 
     program.time = reply
 
     update.message.reply_text(f"Напоминание с описанием: \"{program.desc}\"\n"
-                              f"Будет воспроизведено {program.date} "
-                              f"в {program.time}")
+                              f"Будет воспроизведено в {program.time}")
+    jq.run_daily(send_message_job, datetime.time(hour=int(program.time[:2]), minute=int(program.time[3:])),
+                 days=(0, 1, 2, 3, 4, 5, 6), context=update.message.chat_id, tzinfo=pytz.timezone())
 
-    e.execute(f"""insert into reminders(user_id, desc, time, date) values (
-{int(update.message.from_user.id)}, '{program.desc}', '{program.time}', '{program.date}')""")
+    e.execute(f"""insert into reminders(user_id, desc, time) values (
+{int(update.message.from_user.id)}, '{program.desc}', '{program.time}')""")
 
     return ConversationHandler.END
+
+
+def send_message_job(context):
+    data = e.execute(f"""
+            select * from reminders where user_id == "{int(program.id)}"
+            """).fetchall()
+    if not len(data):
+        return
+
+    for elem in data:
+        if elem[3] == str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute):
+            context.bot.send_message(elem[2])
 
 
 def stop_new(update, context):
@@ -167,7 +167,7 @@ def list(update, context):
     if len(data):
         update.message.reply_text(f'{program.username}, вот список всех созданных вами напоминаний:')
         for elem in data:
-            update.message.reply_text(f'{elem[0]}: {elem[2]}, ({elem[3]}, {elem[4]})')
+            update.message.reply_text(f'{elem[0]}: {elem[2]}, ({elem[3]})')
     else:
         update.message.reply_text('Вы не создали ни одного напоминания')
 
@@ -232,18 +232,18 @@ def main():
                 id integer primary key,
                 user_id varchar,
                 desc varchar,
-                time varchar,
-                date varchar
+                time varchar
             )
         """)
 
     with open('not a token.txt', 'r') as file:
         token = file.read()
 
-    global updater
+    global updater, jq
     updater = Updater(token, use_context=True)
 
     dp = updater.dispatcher
+    jq = updater.job_queue
 
     # text_handler = MessageHandler(Filters.text, text)
     # dp.add_handler(text_handler)
@@ -255,7 +255,6 @@ def main():
         states={
             1: [MessageHandler(Filters.text & ~Filters.command, new_first_response)],
             2: [MessageHandler(Filters.text & ~Filters.command, new_second_response)],
-            3: [MessageHandler(Filters.text & ~Filters.command, new_third_response)]
         },
 
         fallbacks=[CommandHandler('stop', stop_new)]
