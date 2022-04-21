@@ -1,4 +1,4 @@
-from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, ConversationHandler
+from telegram.ext import Updater, Filters, CommandHandler, ConversationHandler, MessageHandler
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 import datetime
@@ -17,6 +17,12 @@ class Program:
 
 
 def start(update, context):
+    """
+    Начинает диалог с пользователем, спрашивает его имя
+    :param update:
+    :param context:
+    :return:
+    """
     if not no_name():
         update.message.reply_text("Вы уже представились. Для получения списка всех команд напишите /help")
         return ConversationHandler.END
@@ -24,19 +30,23 @@ def start(update, context):
     update.message.reply_text('Как к вам обращаться?')
     program.id = update.message.chat_id
 
+    context.job_queue.run_repeating(send_message_job, 60, context=update.message.chat_id)
+
     return 1
 
 
 def start_response(update, context):
+    """
+    Ответ на вопрос об имени пользователя
+    :param update:
+    :param context:
+    :return:
+    """
     program.username = update.message.text
     update.message.reply_text('Здравствуйте, ' + program.username)
     e.execute(f"""insert into user(id, name) values ({int(update.message.from_user.id)}, '{program.username}')""")
 
     return ConversationHandler.END
-
-
-# def text(update, context):
-#    update.message.reply_text('Пишите команды')
 
 
 def change_name(update, context):
@@ -80,6 +90,10 @@ def new_first_response(update, context):
     return 2
 
 
+def sayhi(context):
+    context.bot.send_message(context.job.context, text="hi")
+
+
 def new_second_response(update, context):
     reply = update.message.text
 
@@ -93,8 +107,7 @@ def new_second_response(update, context):
 
     update.message.reply_text(f"Напоминание с описанием: \"{program.desc}\"\n"
                               f"Будет воспроизведено в {program.time}")
-    jq.run_daily(send_message_job, datetime.time(hour=int(program.time[:2]), minute=int(program.time[3:])),
-                 days=(0, 1, 2, 3, 4, 5, 6), context=update.message.chat_id)
+    t = datetime.time(hour=int(program.time[:2]), minute=int(program.time[3:]))
 
     e.execute(f"""insert into reminders(user_id, desc, time) values (
 {int(update.message.from_user.id)}, '{program.desc}', '{program.time}')""")
@@ -110,8 +123,8 @@ def send_message_job(context):
         return
 
     for elem in data:
-        if elem[3] == str(datetime.datetime.now().hour) + ':' + str(datetime.datetime.now().minute):
-            context.bot.send_message(elem[2])
+        if elem[3] == str(datetime.datetime.now().time())[:5]:
+            context.bot.send_message(context.job.context, text=elem[2])
 
 
 def stop_new(update, context):
@@ -238,7 +251,7 @@ def main():
     with open('not a token.txt', 'r') as file:
         token = file.read()
 
-    global updater, jq
+    global updater
     updater = Updater(token, use_context=True)
 
     dp = updater.dispatcher
